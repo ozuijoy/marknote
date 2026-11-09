@@ -1,0 +1,13 @@
+{
+  "name": "marknote-dev-shim",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "開發／測試用：把 Neon HTTP SQL 協定轉譯到本地 PostgreSQL（Docker）。不屬於正式部署內容。",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}

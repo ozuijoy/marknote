@@ -1,0 +1,11 @@
+node_modules/
+.next/
+out/
+.netlify/
+dev/shim/node_modules/
+*.log
+.env
+.env*.local
+.DS_Store
+coverage/
+test-artifacts/

@@ -1,0 +1,32 @@
+{
+  "name": "marknote",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "類 Notion 的 Markdown 筆記 Web App（Netlify + Neon Postgres）",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:init": "node scripts/init-db.mjs",
+    "db:reset": "node scripts/init-db.mjs --reset",
+    "test": "node --test \"tests/unit/*.test.mjs\"",
+    "test:api": "node tests/api.test.mjs"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "clsx": "^2.1.1",
+    "jose": "^6.2.15",
+    "next": "^15.5.29",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
