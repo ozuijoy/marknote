@@ -24,6 +24,32 @@ const PATHS = {
       <path d="M12 11v6M9 14h6" />
     </>
   ),
+  file: (
+    <>
+      <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z" />
+      <path d="M14 3v5h5" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 4v10M8 10l4 4 4-4" />
+      <path d="M5 19h14" />
+    </>
+  ),
+  move: (
+    <>
+      <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+      <path d="M9 13h6M13 10l3 3-3 3" />
+    </>
+  ),
+  grid: (
+    <>
+      <rect x="4" y="4" width="7" height="7" rx="1" />
+      <rect x="13" y="4" width="7" height="7" rx="1" />
+      <rect x="4" y="13" width="7" height="7" rx="1" />
+      <rect x="13" y="13" width="7" height="7" rx="1" />
+    </>
+  ),
   tag: (
     <>
       <path d="M3 12.5V4h8.5L21 13.5 12.5 22 3 12.5z" />

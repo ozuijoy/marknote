@@ -65,11 +65,39 @@ create table if not exists note_tags (
 
 create index if not exists note_tags_tag_id_idx on note_tags (tag_id);
 
+-- ── 檔案庫：資料夾（樹狀，parent_id 為 NULL 代表根目錄） ─────────────────
+create table if not exists folders (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  parent_id  uuid references folders (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  check (length(btrim(name)) > 0)
+);
+
+-- 同一層資料夾名稱不分大小寫唯一（根目錄以全零 UUID 代替 NULL）
+create unique index if not exists folders_sibling_name_key
+  on folders (coalesce(parent_id, '00000000-0000-0000-0000-000000000000'::uuid), lower(name));
+
+-- ── 檔案庫：檔案詮釋資料（實際內容存於 Neon Object Storage） ────────────────
+create table if not exists files (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  mime       text not null default 'application/octet-stream',
+  size       bigint not null default 0,
+  object_key text not null unique,
+  folder_id  uuid references folders (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists files_folder_id_idx on files (folder_id);
+create index if not exists files_created_at_idx on files (created_at desc);
+
 commit;
 
--- ── 驗證：應列出 categories、note_tags、notes、tags 四張表 ─────────────────
+-- ── 驗證：應列出 categories、files、folders、note_tags、notes、tags 六張表 ──
 select table_name
   from information_schema.tables
  where table_schema = 'public'
-   and table_name in ('categories', 'notes', 'tags', 'note_tags')
+   and table_name in ('categories', 'files', 'folders', 'notes', 'tags', 'note_tags')
  order by table_name;

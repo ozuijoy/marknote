@@ -23,12 +23,35 @@ export AUTH_SECRET="${AUTH_SECRET:-local-test-secret-0123456789abcdefghijklmnopq
 export COOKIE_SECURE="${COOKIE_SECURE:-false}"
 export NEXT_PUBLIC_APP_NAME="${NEXT_PUBLIC_APP_NAME:-MarkNote}"
 export PORT="${PORT:-3100}"
+# 檔案庫：本機用 dev/shim/s3.mjs 模擬 Neon Object Storage
+export AWS_ENDPOINT_URL_S3="${AWS_ENDPOINT_URL_S3:-http://127.0.0.1:5600}"
+export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test-access-key}"
+export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-test-secret-key}"
+export AWS_REGION="${AWS_REGION:-us-east-1}"
+export STORAGE_BUCKET="${STORAGE_BUCKET:-marknote-files}"
 SHIM_PG_URL="${SHIM_PG_URL:-postgres://marknote@127.0.0.1:5433/marknote}"
+S3_PORT="${S3_PORT:-5600}"
 
 stop_all() {
   [ -f /tmp/marknote-next.pid ] && kill "$(cat /tmp/marknote-next.pid)" 2>/dev/null || true
   [ -f /tmp/marknote-shim.pid ] && kill "$(cat /tmp/marknote-shim.pid)" 2>/dev/null || true
-  rm -f /tmp/marknote-next.pid /tmp/marknote-shim.pid
+  [ -f /tmp/marknote-s3.pid ] && kill "$(cat /tmp/marknote-s3.pid)" 2>/dev/null || true
+  rm -f /tmp/marknote-next.pid /tmp/marknote-shim.pid /tmp/marknote-s3.pid
+}
+
+# 測試用 S3 模擬器（Neon Object Storage 走相同 S3 協定）
+start_s3() {
+  if curl -sf -m 2 "http://127.0.0.1:${S3_PORT}/health" >/dev/null 2>&1; then
+    echo "→ S3 模擬器已在執行"
+  else
+    echo "→ 啟動 S3 模擬器（127.0.0.1:${S3_PORT}）"
+    nohup node dev/shim/s3.mjs > /tmp/marknote-s3.log 2>&1 < /dev/null &
+    echo $! > /tmp/marknote-s3.pid
+    sleep 1
+    curl -sf -m 5 "http://127.0.0.1:${S3_PORT}/health" >/dev/null || { echo "✗ S3 模擬器啟動失敗，見 /tmp/marknote-s3.log"; exit 1; }
+  fi
+  # 建立測試 bucket（模擬器重啟後會清空）
+  curl -sf -m 5 -X PUT "http://127.0.0.1:${S3_PORT}/${STORAGE_BUCKET}" >/dev/null || true
 }
 
 start_shim() {
@@ -46,6 +69,22 @@ start_shim() {
   curl -sf -m 5 http://127.0.0.1:5599/health >/dev/null || { echo "✗ shim 啟動失敗，見 /tmp/marknote-shim.log"; exit 1; }
 }
 
+start_server() {
+  [ -f /tmp/marknote-next.pid ] && kill "$(cat /tmp/marknote-next.pid)" 2>/dev/null || true
+  echo "→ 啟動 Next.js（http://127.0.0.1:${PORT}）"
+  nohup ./node_modules/.bin/next start -p "$PORT" > /tmp/marknote-next.log 2>&1 < /dev/null &
+  echo $! > /tmp/marknote-next.pid
+  for _ in $(seq 1 30); do
+    if curl -sf -m 2 "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
+      echo "✓ 伺服器就緒"
+      return
+    fi
+    sleep 1
+  done
+  echo "✗ 伺服器啟動失敗，見 /tmp/marknote-next.log"
+  exit 1
+}
+
 case "${1:-start}" in
   stop)
     stop_all
@@ -53,6 +92,7 @@ case "${1:-start}" in
     ;;
   build)
     start_shim
+    start_s3
     npm run db:init
     npm run build
     stop_all
@@ -60,10 +100,12 @@ case "${1:-start}" in
     ;;
   start)
     start_shim
+    start_s3
     npm run db:init >/dev/null
     start_server
     ;;
   test)
+    start_s3
     npm test
     BASE_URL="http://127.0.0.1:${PORT}" TEST_PASSWORD="$APP_PASSWORD" node --test --test-reporter=spec tests/api.test.mjs
     ;;

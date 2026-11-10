@@ -43,3 +43,31 @@ CREATE TABLE IF NOT EXISTS note_tags (
 );
 
 CREATE INDEX IF NOT EXISTS note_tags_tag_id_idx ON note_tags (tag_id);
+
+-- ── 檔案庫：資料夾（樹狀，parent_id 為 NULL 代表根目錄） ─────────────────
+CREATE TABLE IF NOT EXISTS folders (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name       text NOT NULL,
+  parent_id  uuid REFERENCES folders (id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (length(btrim(name)) > 0)
+);
+
+-- 同一層資料夾名稱不分大小寫唯一（根目錄以全零 UUID 代替 NULL）
+CREATE UNIQUE INDEX IF NOT EXISTS folders_sibling_name_key
+  ON folders (COALESCE(parent_id, '00000000-0000-0000-0000-000000000000'::uuid), lower(name));
+
+-- ── 檔案庫：檔案詮釋資料（實際內容存於 Neon Object Storage） ────────────────
+CREATE TABLE IF NOT EXISTS files (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name       text NOT NULL,
+  mime       text NOT NULL DEFAULT 'application/octet-stream',
+  size       bigint NOT NULL DEFAULT 0,
+  object_key text NOT NULL UNIQUE,
+  folder_id  uuid REFERENCES folders (id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS files_folder_id_idx ON files (folder_id);
+CREATE INDEX IF NOT EXISTS files_created_at_idx ON files (created_at DESC);

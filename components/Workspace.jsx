@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import FileManager from './FileManager';
 import NoteEditor from './NoteEditor';
 import NoteList from './NoteList';
 import Sidebar, { SidebarCollapsedBar } from './Sidebar';
@@ -34,6 +35,7 @@ export default function Workspace() {
   const [mobilePane, setMobilePane] = useState('list');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [dialog, setDialog] = useState(null);
+  const [view, setView] = useState('notes'); // notes | files
 
   // 桌面：自動選取第一篇筆記
   useEffect(() => {
@@ -104,10 +106,24 @@ export default function Workspace() {
     onNewCategory: () => setDialog({ type: 'category-new' }),
     onEditCategory: (category) => setDialog({ type: 'category-edit', category }),
     onDeleteCategory: (category) => setDialog({ type: 'category-delete', category }),
+    onOpenFiles: () => {
+      setDrawerOpen(false);
+      setView('files');
+    },
     onNewTag: () => setDialog({ type: 'tag-new' }),
     onEditTag: (tag) => setDialog({ type: 'tag-edit', tag }),
     onDeleteTag: (tag) => setDialog({ type: 'tag-delete', tag }),
   };
+
+  // 檔案庫是獨立頁面（附屬功能），不佔用筆記的三欄版面
+  if (view === 'files') {
+    return (
+      <div className={`app is-files ${isMobile ? 'is-mobile' : 'is-desktop'}`}>
+        <FileManager onBackToNotes={() => setView('notes')} notify={store.notify} />
+        <Toast toast={store.toast} onDismiss={store.dismissToast} />
+      </div>
+    );
+  }
 
   return (
     <div

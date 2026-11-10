@@ -6,6 +6,7 @@ import { Menu, PromptDialog } from './Modal';
 import MarkdownView from './MarkdownView';
 import TagPicker from './TagPicker';
 import { countWords, formatDateTime, readingTime } from '@/lib/format';
+import { snippetForFile, uploadFile } from '@/lib/upload';
 
 /**
  * 右欄：編輯／閱讀區。
@@ -26,6 +27,8 @@ export default function NoteEditor({ store, variant = 'desktop', onBack, onReque
   const [content, setContent] = useState('');
   const [dirty, setDirty] = useState(false);
   const [dialog, setDialog] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const uploadRef = useRef(null);
   const editorRef = useRef(null);
   const titleRef = useRef(null);
   const draftRef = useRef({ id: null, title: '', content: '', dirty: false });
@@ -262,6 +265,26 @@ export default function NoteEditor({ store, variant = 'desktop', onBack, onReque
     [applyTransform],
   );
 
+  // 上傳單一檔案並插入（每次僅處理一個檔案）
+  const pickUpload = () => uploadRef.current?.click();
+
+  const handleUploaded = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setUploading(true);
+    try {
+      store.notify?.(`正在上傳「${file.name}」…`, 'info');
+      const record = await uploadFile(file, { folderId: null });
+      insertBlock(snippetForFile(record));
+      store.notify?.('已插入檔案', 'success');
+    } catch (err) {
+      store.notify?.(err?.message || '上傳失敗', 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const tools = useMemo(
     () => [
       { key: 'bold', icon: 'bold', title: '粗體（Ctrl+B）', run: () => wrap('**', '**', '粗體') },
@@ -283,6 +306,13 @@ export default function NoteEditor({ store, variant = 'desktop', onBack, onReque
       { key: 'audio', icon: 'audio', title: '插入音訊', run: () => setDialog({ type: 'audio' }) },
       { key: 'video', icon: 'video', title: '插入影片', run: () => setDialog({ type: 'video' }) },
       { key: 'embed', icon: 'play', title: '插入 YouTube／Vimeo／Bilibili', run: () => setDialog({ type: 'embed' }) },
+      {
+        key: 'upload',
+        icon: 'upload',
+        title: uploading ? '上傳中…' : '上傳檔案並插入（單檔，圖片／音訊／影片）',
+        run: pickUpload,
+        busy: uploading,
+      },
       { sep: true },
       {
         key: 'codeblock',
@@ -558,17 +588,20 @@ export default function NoteEditor({ store, variant = 'desktop', onBack, onReque
                   <button
                     type="button"
                     key={t.key}
-                    className="toolbar-btn"
+                    className={`toolbar-btn ${t.busy ? 'is-busy' : ''}`}
                     title={t.title}
                     aria-label={t.title}
+                    disabled={t.busy}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={t.run}
                   >
-                    <Icon name={t.icon} size={15} />
+                    <Icon name={t.busy ? 'refresh' : t.icon} size={15} />
                   </button>
                 ),
               )}
             </div>
+
+            <input ref={uploadRef} type="file" hidden onChange={handleUploaded} aria-hidden="true" />
 
             <div className="editor-scroll">
               <div className="editor-page">

@@ -17,6 +17,7 @@ export default function Sidebar({
   onCycleTheme,
   onLogout,
   onNewNote,
+  onOpenFiles,
   onEditCategory,
   onDeleteCategory,
   onNewCategory,
@@ -79,9 +80,15 @@ export default function Sidebar({
         </span>
       </div>
 
-      <button type="button" className="new-note-btn" onClick={onNewNote}>
+      <button type="button" className="new-note-btn" onClick={() => onNewNote()}>
         <Icon name="plus" size={16} />
         <span>新增筆記</span>
+      </button>
+
+      <button type="button" className="files-entry" onClick={onOpenFiles}>
+        <Icon name="folder" size={16} />
+        <span>檔案庫</span>
+        <Icon name="chevronRight" size={13} />
       </button>
 
       <nav className="sidebar-scroll">
