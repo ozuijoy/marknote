@@ -4,10 +4,22 @@ import { APP_NAME, checkRequiredEnv, getAppPassword, getEmbedAllowlist } from '@
 import { query } from '@/lib/db';
 import { authenticatedResponse } from '@/lib/session';
 
+/**
+ * 限流用的來源 IP。
+ * x-forwarded-for 的第一段由客戶端自行填寫，換個值就能重置次數，所以不可信。
+ * 優先使用 Netlify 邊緣節點寫入的 x-nf-client-connection-ip，
+ * 其次 x-real-ip，最後才退回 x-forwarded-for 最右邊（離伺服器最近的代理所加）的那一段。
+ */
 function clientKey(req) {
-  const forwarded = req.headers.get('x-forwarded-for') || '';
-  const ip = forwarded.split(',')[0]?.trim() || 'unknown';
-  return ip;
+  const nf = req.headers.get('x-nf-client-connection-ip')?.trim();
+  if (nf) return nf;
+  const real = req.headers.get('x-real-ip')?.trim();
+  if (real) return real;
+  const forwarded = (req.headers.get('x-forwarded-for') || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return forwarded.at(-1) || 'unknown';
 }
 
 export const POST = route(async (req) => {

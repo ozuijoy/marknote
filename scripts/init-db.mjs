@@ -56,8 +56,9 @@ const reset = process.argv.includes('--reset');
 
 try {
   if (reset) {
-    console.log('⚠ 清空既有資料表…');
-    await sql.query('DROP TABLE IF EXISTS note_tags, notes, tags, categories CASCADE');
+    console.log('⚠ 清空既有資料表（筆記、分類、標籤、檔案庫）…');
+    await sql.query('DROP TABLE IF EXISTS note_tags, notes, tags, categories, files, folders CASCADE');
+    console.log('  注意：物件儲存（bucket）內的檔案不會被刪除，如需清空請到 Neon Console → Storage 處理。');
   }
 
   console.log(`→ 套用 ${statements.length} 個敘述到資料庫…`);
@@ -67,7 +68,7 @@ try {
 
   const tables = await sql.query(
     `SELECT table_name FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_name IN ('notes','categories','tags','note_tags')
+      WHERE table_schema = 'public' AND table_name IN ('notes','categories','tags','note_tags','folders','files')
       ORDER BY table_name`,
   );
   console.log(`✓ 完成。已存在的資料表：${tables.map((t) => t.table_name).join(', ')}`);
