@@ -16,6 +16,8 @@
     "test:files": "node --test --test-reporter=spec tests/files.test.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1168.0",
+    "@aws-sdk/s3-request-presigner": "^3.1168.0",
     "@neondatabase/serverless": "^1.2.0",
     "clsx": "^2.1.1",
     "jose": "^6.2.15",
