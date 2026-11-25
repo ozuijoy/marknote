@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LATEST_PROTOCOL_VERSION, RPC, createMcpHandler, verifyBearer } from '../../lib/mcp.js';
+import {
+  ALL_PROTOCOL_VERSIONS,
+  LATEST_PROTOCOL_VERSION,
+  RPC,
+  createMcpHandler,
+  decodeHeaderValue,
+  httpStatusForModern,
+  modernVersionOf,
+  validateModernHeaders,
+  verifyBearer,
+} from '../../lib/mcp.js';
 
 /** 記憶體版資料層，介面與 lib/data.js 相同 */
 function fakeData() {
@@ -165,4 +175,112 @@ test('verifyBearer', async () => {
   assert.equal(await verifyBearer('Bearer wrong', 'secret-token'), false);
   assert.equal(await verifyBearer('secret-token', 'secret-token'), false);
   assert.equal(await verifyBearer('Bearer x', ''), false);
+});
+
+// ── 新版協定 2026-07-28（無狀態、無 initialize）─────────────────────────
+const V = '2026-07-28';
+const meta = (version = V) => ({
+  'io.modelcontextprotocol/protocolVersion': version,
+  'io.modelcontextprotocol/clientInfo': { name: 't', version: '1' },
+  'io.modelcontextprotocol/clientCapabilities': {},
+});
+const modern = (handle, method, params = {}, version = V) =>
+  handle({ jsonrpc: '2.0', id: ++seq, method, params: { ...params, _meta: meta(version) } });
+const hdrs = (obj) => {
+  const m = new Map(Object.entries(obj).map(([k, v]) => [k.toLowerCase(), v]));
+  return { get: (k) => (m.has(k.toLowerCase()) ? m.get(k.toLowerCase()) : null) };
+};
+
+test('新版：server/discover 回報支援版本、能力與 serverInfo', async () => {
+  const res = (await modern(createMcpHandler(fakeData()), 'server/discover')).result;
+  assert.equal(res.resultType, 'complete');
+  assert.deepEqual(res.supportedVersions, ALL_PROTOCOL_VERSIONS);
+  assert.ok(res.supportedVersions.includes(V) && res.supportedVersions.includes('2025-06-18'));
+  assert.ok(res.capabilities.tools && res.capabilities.resources);
+  assert.equal(res._meta['io.modelcontextprotocol/serverInfo'].name, 'marknote');
+  assert.equal(res.cacheScope, 'private');
+  assert.equal(typeof res.ttlMs, 'number');
+});
+
+test('新版：不需 initialize 即可直接呼叫工具與資源', async () => {
+  const handle = createMcpHandler(fakeData());
+  const list = (await modern(handle, 'tools/list')).result;
+  assert.equal(list.resultType, 'complete');
+  assert.ok(list.tools.some((t) => t.name === 'create_note'));
+  assert.equal(list.cacheScope, 'private');
+
+  const created = (await modern(handle, 'tools/call', { name: 'create_note', arguments: { title: '新版', content: '無狀態' } })).result;
+  assert.equal(created.resultType, 'complete');
+  assert.ok(created._meta['io.modelcontextprotocol/serverInfo']);
+  const id = created.structuredContent.note.id;
+
+  const read = (await modern(handle, 'resources/read', { uri: `marknote://note/${id}` })).result;
+  assert.match(read.contents[0].text, /無狀態/);
+  assert.equal(read.ttlMs, 0);
+});
+
+test('新版：不支援的版本回 -32022 並列出支援版本', async () => {
+  const res = await modern(createMcpHandler(fakeData()), 'tools/list', {}, '1900-01-01');
+  assert.equal(res.error.code, RPC.UNSUPPORTED_PROTOCOL_VERSION);
+  assert.deepEqual(res.error.data, { supported: ALL_PROTOCOL_VERSIONS, requested: '1900-01-01' });
+  assert.equal(httpStatusForModern(res), 400);
+});
+
+test('新版：initialize、ping 已移除，回 -32601（HTTP 404）', async () => {
+  const handle = createMcpHandler(fakeData());
+  for (const m of ['initialize', 'ping', 'logging/setLevel']) {
+    const res = await modern(handle, m);
+    assert.equal(res.error.code, RPC.METHOD_NOT_FOUND, m);
+    assert.equal(httpStatusForModern(res), 404);
+  }
+});
+
+test('舊版仍可用；舊版不認得 server/discover', async () => {
+  const handle = createMcpHandler(fakeData());
+  const init = await call(handle, 'initialize', { protocolVersion: '2025-06-18' });
+  assert.equal(init.result.protocolVersion, '2025-06-18');
+  assert.equal(init.result.resultType, undefined);
+  // 舊版 client 若請求新版號，退回最新的舊版
+  assert.equal((await call(handle, 'initialize', { protocolVersion: V })).result.protocolVersion, LATEST_PROTOCOL_VERSION);
+  assert.equal((await call(handle, 'server/discover')).error.code, RPC.METHOD_NOT_FOUND);
+});
+
+test('modernVersionOf 判斷請求時代', () => {
+  assert.equal(modernVersionOf({ params: { _meta: meta() } }), V);
+  assert.equal(modernVersionOf({ params: { _meta: { progressToken: 1 } } }), null);
+  assert.equal(modernVersionOf({ params: {} }), null);
+  assert.equal(modernVersionOf({}), null);
+});
+
+test('validateModernHeaders：版本、方法、名稱需與 body 一致', () => {
+  const msg = { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_note', _meta: meta() } };
+  const ok = { 'MCP-Protocol-Version': V, 'Mcp-Method': 'tools/call', 'Mcp-Name': 'get_note' };
+  assert.equal(validateModernHeaders(msg, hdrs(ok)), null);
+
+  const bad = (h) => validateModernHeaders(msg, hdrs({ ...ok, ...h }))?.error.code;
+  assert.equal(bad({ 'MCP-Protocol-Version': undefined }), RPC.HEADER_MISMATCH);
+  assert.equal(bad({ 'MCP-Protocol-Version': '2025-06-18' }), RPC.HEADER_MISMATCH);
+  assert.equal(bad({ 'Mcp-Method': 'tools/list' }), RPC.HEADER_MISMATCH);
+  assert.equal(bad({ 'Mcp-Name': 'delete_note' }), RPC.HEADER_MISMATCH);
+
+  const noName = { ...ok };
+  delete noName['Mcp-Name'];
+  assert.equal(validateModernHeaders(msg, hdrs(noName)).error.code, RPC.HEADER_MISMATCH);
+
+  // Base64 編碼的 Mcp-Name
+  const enc = `=?base64?${Buffer.from('get_note').toString('base64')}?=`;
+  assert.equal(validateModernHeaders(msg, hdrs({ ...ok, 'Mcp-Name': enc })), null);
+
+  // resources/read 比對 uri；list 類請求不需 Mcp-Name
+  const uri = 'marknote://note/00000000-0000-0000-0000-000000000000';
+  const read = { jsonrpc: '2.0', id: 2, method: 'resources/read', params: { uri, _meta: meta() } };
+  assert.equal(validateModernHeaders(read, hdrs({ 'MCP-Protocol-Version': V, 'Mcp-Method': 'resources/read', 'Mcp-Name': uri })), null);
+  const list = { jsonrpc: '2.0', id: 3, method: 'tools/list', params: { _meta: meta() } };
+  assert.equal(validateModernHeaders(list, hdrs({ 'MCP-Protocol-Version': V, 'Mcp-Method': 'tools/list' })), null);
+});
+
+test('decodeHeaderValue', () => {
+  assert.equal(decodeHeaderValue('plain'), 'plain');
+  assert.equal(decodeHeaderValue('=?base64?SGVsbG8sIOS4lueVjA==?='), 'Hello, 世界');
+  assert.equal(decodeHeaderValue('=?base64?!!!?='), null);
 });

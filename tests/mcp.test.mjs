@@ -13,13 +13,14 @@ const TOKEN = process.env.MCP_TOKEN || '';
 const RUN_ID = Math.random().toString(36).slice(2, 8);
 let seq = 0;
 
-async function rpc(body, { token = TOKEN, raw = false } = {}) {
+async function rpc(body, { token = TOKEN, raw = false, headers = {} } = {}) {
   const res = await fetch(`${BASE}/api/mcp`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       accept: 'application/json, text/event-stream',
       ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...headers,
     },
     body: typeof body === 'string' ? body : JSON.stringify(body),
   });
@@ -41,6 +42,40 @@ test('MCP_TOKEN 未提供時跳過', { skip: !TOKEN && '請設定 MCP_TOKEN' }, 
     const res = await call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
     assert.equal(res.status, 200);
     assert.equal(res.body.result.serverInfo.name, 'marknote');
+  });
+
+  await t.test('新版 2026-07-28：免 initialize、server/discover、標頭驗證', async () => {
+    const V = '2026-07-28';
+    const _meta = { 'io.modelcontextprotocol/protocolVersion': V, 'io.modelcontextprotocol/clientCapabilities': {} };
+    const modern = (method, params = {}, headers = {}) =>
+      rpc({ jsonrpc: '2.0', id: ++seq, method, params: { ...params, _meta } }, { headers: { 'mcp-protocol-version': V, 'mcp-method': method, ...headers } });
+
+    const disc = await modern('server/discover');
+    assert.equal(disc.status, 200);
+    assert.ok(disc.body.result.supportedVersions.includes(V));
+    assert.equal(disc.body.result.resultType, 'complete');
+
+    const list = await modern('tools/list');
+    assert.equal(list.status, 200);
+    assert.ok(list.body.result.tools.length > 0);
+
+    const call = await modern('tools/call', { name: 'list_tags', arguments: {} }, { 'mcp-name': 'list_tags' });
+    assert.equal(call.status, 200);
+    assert.equal(call.body.result.resultType, 'complete');
+
+    const noName = await modern('tools/call', { name: 'list_tags', arguments: {} });
+    assert.equal(noName.status, 400);
+    assert.equal(noName.body.error.code, -32020);
+
+    const init = await modern('initialize');
+    assert.equal(init.status, 404);
+
+    const badVer = await rpc(
+      { jsonrpc: '2.0', id: ++seq, method: 'tools/list', params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '1900-01-01' } } },
+      { headers: { 'mcp-protocol-version': '1900-01-01', 'mcp-method': 'tools/list' } },
+    );
+    assert.equal(badVer.status, 400);
+    assert.equal(badVer.body.error.code, -32022);
   });
 
   await t.test('通知回 202、壞 JSON 回 parse error、GET 回 405', async () => {

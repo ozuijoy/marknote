@@ -11,19 +11,35 @@ import {
   searchNotes,
   updateNote,
 } from '@/lib/data';
-import { RPC, createMcpHandler, errorResponse, verifyBearer } from '@/lib/mcp';
+import {
+  MODERN_PROTOCOL_VERSIONS,
+  RPC,
+  createMcpHandler,
+  errorResponse,
+  httpStatusForModern,
+  modernVersionOf,
+  validateModernHeaders,
+  verifyBearer,
+} from '@/lib/mcp';
 
 /**
  * MCP 端點（Streamable HTTP 傳輸，無狀態）。
  *
  *   POST /api/mcp   Authorization: Bearer <MCP_TOKEN>
- *   body：單一 JSON-RPC 訊息或批次陣列；回應為 application/json。
+ *   body：單一 JSON-RPC 訊息（舊版另接受批次陣列）；回應為 application/json。
+ *
+ * 雙時代：
+ * - 新版 2026-07-28：請求在 params._meta 帶協定版本，並帶 MCP-Protocol-Version、
+ *   Mcp-Method（及 Mcp-Name）標頭；不需 initialize，支援 server/discover。
+ * - 舊版 2024-11-05 ～ 2025-11-25：照舊先 initialize。
  *
  * 不使用 cookie session（middleware 放行此路徑），改由 MCP_TOKEN 驗證；
  * 未設定 MCP_TOKEN 時端點回 404，等同停用。
  */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const MODERN_HEADER_VERSIONS = new Set(MODERN_PROTOCOL_VERSIONS);
 
 const dataApi = { listNotes, searchNotes, getNote, createNote, updateNote, deleteNote, listCategories, listTags, createCategory };
 
@@ -57,10 +73,30 @@ export async function POST(req) {
   const handle = createMcpHandler(dataApi, { readonly: isMcpReadonly() });
 
   if (Array.isArray(payload)) {
+    if (payload.some((m) => modernVersionOf(m) !== null)) {
+      return rpcJson(errorResponse(null, RPC.INVALID_REQUEST, '新版協定（2026-07-28）不支援批次請求，請逐一送出'), 400);
+    }
     if (!payload.length) return rpcJson(errorResponse(null, RPC.INVALID_REQUEST, '批次請求不可為空陣列'), 400);
     const results = (await Promise.all(payload.map((m) => handle(m)))).filter(Boolean);
     if (!results.length) return new Response(null, { status: 202 });
     return rpcJson(results);
+  }
+
+  if (modernVersionOf(payload) !== null) {
+    const invalid = validateModernHeaders(payload, req.headers);
+    if (invalid) return rpcJson(invalid, 400);
+    const result = await handle(payload);
+    if (!result) return new Response(null, { status: 202 });
+    return rpcJson(result, httpStatusForModern(result));
+  }
+
+  // 舊版用戶端不會帶 _meta 版本；若標頭卻宣稱新版，代表 body 缺少必要的 _meta
+  const headerVersion = req.headers.get('mcp-protocol-version');
+  if (headerVersion && MODERN_HEADER_VERSIONS.has(headerVersion) && payload?.method) {
+    return rpcJson(
+      errorResponse(payload.id ?? null, RPC.HEADER_MISMATCH, `標頭不符：MCP-Protocol-Version 為 ${headerVersion}，但 params._meta 缺少協定版本`),
+      400,
+    );
   }
 
   const result = await handle(payload);
