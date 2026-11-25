@@ -72,6 +72,11 @@ Together、SiliconFlow、Ollama、LM Studio、vLLM 等。部署在 Netlify／Ver
 
 設定 `MCP_TOKEN` 後，`https://你的網域/api/mcp` 即為 MCP Streamable HTTP 端點（無狀態、JSON 回應）。
 
+同時支援新舊兩代協定，用戶端不需調整：
+
+- **2026-07-28（新版）**：不需 `initialize` 握手，每個請求在 `params._meta` 帶協定版本，並帶 `MCP-Protocol-Version`、`Mcp-Method`（`tools/call`／`resources/read` 另需 `Mcp-Name`）標頭；支援 `server/discover`。標頭與 body 不一致回 `400`（`-32020`），不支援的版本回 `400`（`-32022`，附支援版本清單）。
+- **2025-11-25、2025-06-18、2025-03-26、2024-11-05（舊版）**：照舊先 `initialize` 再呼叫。
+
 | 工具 | 說明 |
 | --- | --- |
 | `search_notes` | 關鍵字搜尋（標題、內文、標籤） |
